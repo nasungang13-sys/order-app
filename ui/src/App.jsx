@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import AdminDashboard from './AdminDashboard.jsx'
 import './App.css'
 
 const menus = [
@@ -46,7 +47,7 @@ function formatPrice(price) {
   return `${currency.format(price)}원`
 }
 
-function App() {
+function OrderPage() {
   const [selectedOptions, setSelectedOptions] = useState({})
   const [cart, setCart] = useState([])
   const [notice, setNotice] = useState('')
@@ -286,6 +287,14 @@ function App() {
         <span>TAKE A MOMENT, TAKE A SIP.</span>
       </footer>
     </div>
+  )
+}
+
+function App() {
+  return window.location.pathname === '/admin' ? (
+    <AdminDashboard />
+  ) : (
+    <OrderPage />
   )
 }
 
