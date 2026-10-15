@@ -213,11 +213,10 @@ function AdminDashboard() {
                       {menu.icon}
                     </span>
                   </div>
-                  <h3>{menu.name}</h3>
-                  <div className="inventory-card__controls">
+                  <div className="inventory-card__details">
+                    <h3>{menu.name}</h3>
                     <span className="inventory-card__quantity">
-                      {menu.stock}
-                      <span>개</span>
+                      {menu.stock}<span>개</span>
                     </span>
                     <span
                       className={`inventory-status ${status.className}`}
@@ -225,6 +224,8 @@ function AdminDashboard() {
                       <span aria-hidden="true" />
                       {status.label}
                     </span>
+                  </div>
+                  <div className="inventory-card__controls">
                     <div className="stock-buttons">
                       <button
                         aria-label={`${menu.name} 재고 감소`}
