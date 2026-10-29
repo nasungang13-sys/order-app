@@ -62,7 +62,7 @@ function AdminDashboard() {
       .then(([menuData, orderData]) => {
         setInventory(menuData.items.map((menu) => ({
           ...menu,
-          stock: menu.stockQuantity,
+          stock: Number(menu.stockQuantity ?? menu.stock_quantity ?? menu.stock ?? 0),
         })))
         setOrders(orderData.items)
       })
@@ -264,7 +264,10 @@ function AdminDashboard() {
                   </div>
                   <div className="inventory-card__details">
                     <h3>{menu.name}</h3>
-                    <span className="inventory-card__quantity">
+                    <span
+                      aria-label={`${menu.name} 현재 재고 ${menu.stock}개`}
+                      className="inventory-card__quantity"
+                    >
                       {menu.stock}<span>개</span>
                     </span>
                     <span

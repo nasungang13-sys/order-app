@@ -82,6 +82,15 @@ function OrderPage() {
     setNotice(`${menu.name} 메뉴를 장바구니에 담았습니다.`)
   }
 
+  function changeCartQuantity(key, adjustment) {
+    setCart((current) => current.flatMap((item) => {
+      if (item.key !== key) return [item]
+
+      const quantity = item.quantity + adjustment
+      return quantity > 0 ? [{ ...item, quantity }] : []
+    }))
+  }
+
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0)
   const totalPrice = cart.reduce(
     (sum, item) => sum + item.unitPrice * item.quantity,
@@ -286,9 +295,26 @@ function OrderPage() {
                           </span>
                         )}
                       </div>
-                      <span className="cart-item__quantity">
-                        × {item.quantity}
-                      </span>
+                      <div className="cart-item__quantity">
+                        <button
+                          aria-label={`${item.name} 수량 감소`}
+                          disabled={item.quantity === 1}
+                          onClick={() => changeCartQuantity(item.key, -1)}
+                          type="button"
+                        >
+                          −
+                        </button>
+                        <output aria-label={`${item.quantity}개`}>
+                          {item.quantity}
+                        </output>
+                        <button
+                          aria-label={`${item.name} 수량 증가`}
+                          onClick={() => changeCartQuantity(item.key, 1)}
+                          type="button"
+                        >
+                          +
+                        </button>
+                      </div>
                       <span className="cart-item__price">
                         {formatPrice(item.unitPrice * item.quantity)}
                       </span>
