@@ -1,48 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import {
+  adjustMenuStock,
+  getAdminMenus,
+  getAdminOrders,
+  updateOrderStatus,
+} from './api.js'
 import './AdminDashboard.css'
-
-const initialInventory = [
-  { id: 'iced-americano', name: '아메리카노 (ICE)', icon: '🧊', stock: 10 },
-  { id: 'hot-americano', name: '아메리카노 (HOT)', icon: '☕', stock: 3 },
-  { id: 'cafe-latte', name: '카페라떼', icon: '🥛', stock: 0 },
-]
-
-const now = Date.now()
-const minute = 60 * 1000
-
-const initialOrders = [
-  {
-    id: 'CZ-1048',
-    receivedAt: now - 8 * minute,
-    status: 'received',
-    items: [{ name: '아메리카노 (ICE)', quantity: 2, options: ['샷 추가'] }],
-    total: 9000,
-  },
-  {
-    id: 'CZ-1047',
-    receivedAt: now - 19 * minute,
-    status: 'preparing',
-    items: [
-      { name: '아메리카노 (HOT)', quantity: 1, options: [] },
-      { name: '카페라떼', quantity: 1, options: [] },
-    ],
-    total: 9000,
-  },
-  {
-    id: 'CZ-1046',
-    receivedAt: now - 32 * minute,
-    status: 'completed',
-    items: [{ name: '카페라떼', quantity: 2, options: [] }],
-    total: 10000,
-  },
-  {
-    id: 'CZ-1045',
-    receivedAt: now - 43 * minute,
-    status: 'received',
-    items: [{ name: '아메리카노 (HOT)', quantity: 1, options: [] }],
-    total: 4000,
-  },
-]
 
 const currency = new Intl.NumberFormat('ko-KR')
 const dateTime = new Intl.DateTimeFormat('ko-KR', {
@@ -62,6 +25,12 @@ function formatPrice(price) {
   return `${currency.format(price)}원`
 }
 
+function getMenuIcon(name) {
+  if (name.includes('(ICE)')) return '🧊'
+  if (name.includes('(HOT)')) return '☕'
+  return '🥛'
+}
+
 function getInventoryStatus(stock) {
   if (stock === 0) {
     return { label: '품절', className: 'inventory-status--sold-out' }
@@ -75,9 +44,41 @@ function getInventoryStatus(stock) {
 }
 
 function AdminDashboard() {
-  const [inventory, setInventory] = useState(initialInventory)
-  const [orders, setOrders] = useState(initialOrders)
+  const [inventory, setInventory] = useState([])
+  const [orders, setOrders] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
+  const [pendingActions, setPendingActions] = useState(() => new Set())
   const [notice, setNotice] = useState('')
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    Promise.all([
+      getAdminMenus({ signal: controller.signal }),
+      getAdminOrders({ signal: controller.signal }),
+    ])
+      .then(([menuData, orderData]) => {
+        setInventory(menuData.items.map((menu) => ({
+          ...menu,
+          stock: menu.stockQuantity,
+        })))
+        setOrders(orderData.items)
+      })
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          setLoadError(error.message)
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false)
+        }
+      })
+
+    return () => controller.abort()
+  }, [reloadKey])
 
   const summary = [
     {
@@ -106,25 +107,54 @@ function AdminDashboard() {
     },
   ]
 
-  function adjustStock(menuId, adjustment) {
-    setInventory((current) =>
-      current.map((menu) =>
-        menu.id === menuId
-          ? { ...menu, stock: Math.max(0, menu.stock + adjustment) }
-          : menu,
-      ),
-    )
-    const menu = inventory.find((item) => item.id === menuId)
-    setNotice(`${menu.name} 재고를 ${adjustment > 0 ? '1개 늘렸습니다.' : '1개 줄였습니다.'}`)
+  async function adjustStock(menuId, adjustment) {
+    const actionKey = `stock:${menuId}`
+    if (pendingActions.has(actionKey)) return
+    setPendingActions((current) => new Set(current).add(actionKey))
+
+    try {
+      const result = await adjustMenuStock(menuId, adjustment)
+      setInventory((current) => current.map((menu) =>
+        menu.id === menuId ? { ...menu, stock: result.stockQuantity } : menu,
+      ))
+      const menu = inventory.find((item) => item.id === menuId)
+      setNotice(`${menu.name} 재고를 ${adjustment > 0 ? '1개 늘렸습니다.' : '1개 줄였습니다.'}`)
+    } catch (error) {
+      setNotice(error.message)
+      setLoading(true)
+      setReloadKey((key) => key + 1)
+    } finally {
+      setPendingActions((current) => {
+        const next = new Set(current)
+        next.delete(actionKey)
+        return next
+      })
+    }
   }
 
-  function startPreparing(orderId) {
-    setOrders((current) =>
-      current.map((order) =>
-        order.id === orderId ? { ...order, status: 'preparing' } : order,
-      ),
-    )
-    setNotice(`${orderId} 주문을 제조 중으로 변경했습니다.`)
+  async function advanceOrder(order) {
+    const actionKey = `order:${order.id}`
+    if (pendingActions.has(actionKey)) return
+    const status = order.status === 'received' ? 'preparing' : 'completed'
+    setPendingActions((current) => new Set(current).add(actionKey))
+
+    try {
+      const result = await updateOrderStatus(order.id, status)
+      setOrders((current) => current.map((item) =>
+        item.id === order.id ? { ...item, status: result.status } : item,
+      ))
+      setNotice(`${order.id.slice(0, 8)} 주문 상태를 '${statusLabels[result.status]}'(으)로 변경했습니다.`)
+    } catch (error) {
+      setNotice(error.message)
+      setLoading(true)
+      setReloadKey((key) => key + 1)
+    } finally {
+      setPendingActions((current) => {
+        const next = new Set(current)
+        next.delete(actionKey)
+        return next
+      })
+    }
   }
 
   return (
@@ -161,10 +191,29 @@ function AdminDashboard() {
           </div>
           <span className="admin-demo-label">
             <span aria-hidden="true" />
-            샘플 데이터
+            실시간 데이터
           </span>
         </div>
 
+        {loading ? (
+          <div className="request-state" role="status">관리자 데이터를 불러오는 중입니다.</div>
+        ) : loadError ? (
+          <div className="request-state request-state--error" role="alert">
+            <p>{loadError}</p>
+            <button
+              className="button button--primary"
+              onClick={() => {
+                setLoading(true)
+                setLoadError('')
+                setReloadKey((key) => key + 1)
+              }}
+              type="button"
+            >
+              다시 시도
+            </button>
+          </div>
+        ) : (
+          <>
         <section className="admin-section" aria-labelledby="summary-heading">
           <div className="admin-section__heading">
             <div>
@@ -210,7 +259,7 @@ function AdminDashboard() {
                 <article className="inventory-card" key={menu.id}>
                   <div className="inventory-card__top">
                     <span aria-hidden="true" className="inventory-card__icon">
-                      {menu.icon}
+                      {getMenuIcon(menu.name)}
                     </span>
                   </div>
                   <div className="inventory-card__details">
@@ -230,7 +279,7 @@ function AdminDashboard() {
                       <button
                         aria-label={`${menu.name} 재고 감소`}
                         className="stock-button"
-                        disabled={menu.stock === 0}
+                        disabled={menu.stock === 0 || pendingActions.has(`stock:${menu.id}`)}
                         onClick={() => adjustStock(menu.id, -1)}
                         type="button"
                       >
@@ -239,6 +288,7 @@ function AdminDashboard() {
                       <button
                         aria-label={`${menu.name} 재고 증가`}
                         className="stock-button stock-button--increase"
+                        disabled={pendingActions.has(`stock:${menu.id}`)}
                         onClick={() => adjustStock(menu.id, 1)}
                         type="button"
                       >
@@ -276,9 +326,9 @@ function AdminDashboard() {
                 <article className="order-card" key={order.id}>
                   <div className="order-card__header">
                     <div className="order-card__identity">
-                      <span className="order-card__id">{order.id}</span>
-                      <time className="order-card__time" dateTime={new Date(order.receivedAt).toISOString()}>
-                        {dateTime.format(order.receivedAt)}
+                      <span className="order-card__id">{order.id.slice(0, 8).toUpperCase()}</span>
+                      <time className="order-card__time" dateTime={order.orderedAt}>
+                        {dateTime.format(new Date(order.orderedAt))}
                       </time>
                     </div>
                     <span
@@ -291,11 +341,11 @@ function AdminDashboard() {
                   <div className="order-card__content">
                     <ul className="order-items">
                       {order.items.map((item) => (
-                        <li key={`${order.id}-${item.name}`}>
-                          <span className="order-item__name">{item.name}</span>
+                        <li key={`${order.id}-${item.menuName}`}>
+                          <span className="order-item__name">{item.menuName}</span>
                           {item.options.length > 0 && (
                             <span className="order-item__options">
-                              {item.options.join(', ')}
+                              {item.options.map((option) => option.name).join(', ')}
                             </span>
                           )}
                           <span className="order-item__quantity">
@@ -306,16 +356,24 @@ function AdminDashboard() {
                     </ul>
                     <div className="order-card__total">
                       <span>주문 금액</span>
-                      <strong>{formatPrice(order.total)}</strong>
+                      <strong>{formatPrice(order.totalAmount)}</strong>
                     </div>
                     <div className="order-card__action">
-                      {order.status === 'received' ? (
+                      {order.status === 'received' || order.status === 'preparing' ? (
                         <button
                           className="button button--primary order-start-button"
-                          onClick={() => startPreparing(order.id)}
+                          disabled={pendingActions.has(`order:${order.id}`)}
+                          onClick={() => advanceOrder(order)}
                           type="button"
                         >
-                          제조 시작 <span aria-hidden="true">→</span>
+                          {pendingActions.has(`order:${order.id}`)
+                            ? '저장 중...'
+                            : order.status === 'received'
+                              ? '제조 시작'
+                              : '완료'}
+                          {!pendingActions.has(`order:${order.id}`) && (
+                            <span aria-hidden="true">→</span>
+                          )}
                         </button>
                       ) : (
                         <span className="order-card__action-note">
@@ -331,6 +389,8 @@ function AdminDashboard() {
             </div>
           )}
         </section>
+          </>
+        )}
 
         <p aria-live="polite" className="status-message" role="status">
           {notice}

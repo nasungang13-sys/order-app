@@ -1,13 +1,8 @@
 import 'dotenv/config'
 import { readFile } from 'node:fs/promises'
-import pg from 'pg'
+import { createPool } from '../src/database.js'
 
-const { Pool } = pg
-const pool = new Pool(
-  process.env.DATABASE_URL
-    ? { connectionString: process.env.DATABASE_URL }
-    : undefined,
-)
+const pool = createPool()
 try {
   const schema = await readFile(new URL('../sql/schema.sql', import.meta.url), 'utf8')
   const seed = await readFile(new URL('../sql/seed.sql', import.meta.url), 'utf8')

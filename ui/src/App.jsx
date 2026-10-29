@@ -1,45 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import AdminDashboard from './AdminDashboard.jsx'
+import { createOrder, getMenus } from './api.js'
 import './App.css'
-
-const menus = [
-  {
-    id: 'iced-americano',
-    name: '아메리카노 (ICE)',
-    description: '산뜻하고 깔끔한 밸런스',
-    price: 4000,
-    art: 'iced',
-    icon: '🧊',
-    options: [
-      { id: 'shot', name: '샷 추가', price: 500 },
-      { id: 'syrup', name: '시럽 추가', price: 0 },
-    ],
-  },
-  {
-    id: 'hot-americano',
-    name: '아메리카노 (HOT)',
-    description: '따뜻하게 즐기는 깊은 풍미',
-    price: 4000,
-    art: 'hot',
-    icon: '☕',
-    options: [
-      { id: 'shot', name: '샷 추가', price: 500 },
-      { id: 'syrup', name: '시럽 추가', price: 0 },
-    ],
-  },
-  {
-    id: 'cafe-latte',
-    name: '카페라떼',
-    description: '부드러운 우유와 에스프레소',
-    price: 5000,
-    art: 'latte',
-    icon: '🥛',
-    options: [
-      { id: 'shot', name: '샷 추가', price: 500 },
-      { id: 'syrup', name: '시럽 추가', price: 0 },
-    ],
-  },
-]
 
 const currency = new Intl.NumberFormat('ko-KR')
 
@@ -48,9 +10,33 @@ function formatPrice(price) {
 }
 
 function OrderPage() {
+  const [menus, setMenus] = useState([])
+  const [menuLoading, setMenuLoading] = useState(true)
+  const [menuError, setMenuError] = useState('')
+  const [reloadKey, setReloadKey] = useState(0)
   const [selectedOptions, setSelectedOptions] = useState({})
   const [cart, setCart] = useState([])
   const [notice, setNotice] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    getMenus({ signal: controller.signal })
+      .then(({ items }) => setMenus(items))
+      .catch((error) => {
+        if (error.name !== 'AbortError') {
+          setMenuError(error.message)
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setMenuLoading(false)
+        }
+      })
+
+    return () => controller.abort()
+  }, [reloadKey])
 
   function toggleOption(menuId, optionId) {
     setSelectedOptions((current) => {
@@ -102,8 +88,27 @@ function OrderPage() {
     0,
   )
 
-  function submitOrder() {
-    setNotice('주문 접수 기능은 서버 연결 후 이용할 수 있습니다.')
+  async function submitOrder() {
+    if (cart.length === 0 || submitting) return
+
+    setSubmitting(true)
+    setNotice('')
+    try {
+      const order = await createOrder(
+        cart.map((item) => ({
+          menuId: item.menuId,
+          quantity: item.quantity,
+          optionIds: item.options.map((option) => option.id),
+        })),
+      )
+      setCart([])
+      setSelectedOptions({})
+      setNotice(`주문이 접수되었습니다. 주문 번호: ${order.id}`)
+    } catch (error) {
+      setNotice(error.message)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -138,19 +143,48 @@ function OrderPage() {
             <span className="menu-count">COFFEE · {menus.length}</span>
           </div>
 
-          <div className="menu-grid">
-            {menus.map((menu, index) => (
+          {menuLoading ? (
+            <div className="request-state" role="status">메뉴를 불러오는 중입니다.</div>
+          ) : menuError ? (
+            <div className="request-state request-state--error" role="alert">
+              <p>{menuError}</p>
+              <button
+                className="button button--primary"
+                onClick={() => {
+                  setMenuLoading(true)
+                  setMenuError('')
+                  setReloadKey((key) => key + 1)
+                }}
+                type="button"
+              >
+                다시 시도
+              </button>
+            </div>
+          ) : menus.length === 0 ? (
+            <div className="request-state">현재 판매 중인 메뉴가 없습니다.</div>
+          ) : (
+            <div className="menu-grid">
+              {menus.map((menu, index) => {
+                const isIced = menu.name.includes('(ICE)')
+                const isHot = menu.name.includes('(HOT)')
+                const art = isIced ? 'iced' : isHot ? 'hot' : 'latte'
+                const icon = isIced ? '🧊' : isHot ? '☕' : '🥛'
+
+                return (
               <article className="menu-card" key={menu.id}>
                 <div
-                  className={`menu-card__art menu-card__art--${menu.art}`}
-                  aria-hidden="true"
+                  className={`menu-card__art menu-card__art--${art}`}
+                  aria-hidden={!menu.imageUrl}
                 >
+                  {menu.imageUrl && (
+                    <img className="menu-card__image" src={menu.imageUrl} alt={menu.name} />
+                  )}
                   <span className="menu-card__art-label">
                     COZY
                     <br />
                     BLEND No.0{index + 1}
                   </span>
-                  <span className="menu-card__cup">{menu.icon}</span>
+                  {!menu.imageUrl && <span className="menu-card__cup">{icon}</span>}
                   <span className="menu-card__art-caption">MADE WITH CARE</span>
                 </div>
 
@@ -167,12 +201,13 @@ function OrderPage() {
                     </span>
                   </div>
 
-                  <fieldset className="option-list">
-                    <legend>추가 옵션</legend>
-                    {menu.options.map((option) => {
+                  {(menu.options ?? []).length > 0 && (
+                    <fieldset className="option-list">
+                      <legend>추가 옵션</legend>
+                      {menu.options.map((option) => {
                       const inputId = `${menu.id}-${option.id}`
 
-                      return (
+                        return (
                         <label className="option" htmlFor={inputId} key={option.id}>
                           <input
                             aria-label={`${menu.name} ${option.name} ${
@@ -197,8 +232,9 @@ function OrderPage() {
                           </span>
                         </label>
                       )
-                    })}
-                  </fieldset>
+                      })}
+                    </fieldset>
+                  )}
 
                   <button
                     aria-label={`${menu.name} 담기`}
@@ -209,9 +245,11 @@ function OrderPage() {
                     <span aria-hidden="true">＋</span> 담기
                   </button>
                 </div>
-              </article>
-            ))}
-          </div>
+                </article>
+                )
+              })}
+            </div>
+          )}
         </section>
 
         <section className="cart-section" aria-labelledby="cart-heading">
@@ -267,11 +305,12 @@ function OrderPage() {
               </div>
               <button
                 className="button button--primary cart-submit"
-                disabled={cart.length === 0}
+                disabled={cart.length === 0 || submitting}
                 onClick={submitOrder}
                 type="button"
               >
-                주문하기 <span aria-hidden="true">→</span>
+                {submitting ? '주문 접수 중...' : '주문하기'}{' '}
+                {!submitting && <span aria-hidden="true">→</span>}
               </button>
             </div>
           </div>

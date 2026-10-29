@@ -1,13 +1,8 @@
 import 'dotenv/config'
-import pg from 'pg'
 import { createApp } from './app.js'
+import { createPool } from './database.js'
 
-const { Pool } = pg
-const pool = new Pool(
-  process.env.DATABASE_URL
-    ? { connectionString: process.env.DATABASE_URL }
-    : undefined,
-)
+const pool = createPool()
 const port = Number(process.env.PORT ?? 3000)
 const app = createApp(pool, {
   clientOrigin: process.env.CLIENT_ORIGIN ?? 'http://localhost:5173',

@@ -9,8 +9,8 @@ Express와 PostgreSQL로 구성한 COZY 커피 주문 앱 API입니다.
 
 ## 시작하기
 
-1. PostgreSQL에 `cozy` 데이터베이스를 생성합니다.
-2. `server/.env` 파일에서 데이터베이스 연결 정보를 설정합니다.
+1. `server/.env`의 `DB_NAME` 값으로 PostgreSQL 데이터베이스를 생성합니다.
+2. `server/.env` 파일에서 `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD` 연결 정보를 설정합니다.
 3. 다음 명령으로 의존성을 설치하고 스키마 및 초기 데이터를 준비합니다.
 
    ```bash
